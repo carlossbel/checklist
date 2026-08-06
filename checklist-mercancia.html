@@ -651,11 +651,28 @@ async function asegurarPermiso(handle){
 const estadoCarpeta = document.getElementById("estadoCarpeta");
 function soportaFSA(){ return typeof window.showDirectoryPicker === "function"; }
 
+/* ¿Es un dispositivo táctil / Android (tablet o teléfono)?
+   En estos, aunque el navegador "soporte" showDirectoryPicker, el
+   selector abre Files del sistema (Lenovo) y NO expone OneDrive, y el
+   guardado no funciona bien. Por eso ahí forzamos el modo Compartir. */
+function esMovil(){
+  const ua = navigator.userAgent || "";
+  const uaMobile = (navigator.userAgentData && typeof navigator.userAgentData.mobile === "boolean")
+    ? navigator.userAgentData.mobile
+    : /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+  const tactil = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+  const esAndroidOiOS = /Android|iPhone|iPad|iPod/i.test(ua);
+  return uaMobile || (tactil && esAndroidOiOS);
+}
+
+/* El guardado directo en carpeta solo se habilita en ESCRITORIO real. */
+function modoEscritorio(){ return soportaFSA() && !esMovil(); }
+
 async function elegirCarpeta(){
-  if(!soportaFSA()){
+  if(!modoEscritorio()){
     mostrarMensaje("err",
-      "❌ Tu navegador no soporta la API de archivos (File System Access).\n" +
-      "Usa Microsoft Edge o Google Chrome de escritorio. En la tablet, usa «Compartir a OneDrive».");
+      "❌ En esta tablet no se puede guardar directo en carpeta (abriría Files de Lenovo, sin OneDrive).\n" +
+      "Usa el botón «📤 Compartir a OneDrive». El guardado en carpeta solo funciona en Edge/Chrome de escritorio.");
     return null;
   }
   try{
@@ -691,10 +708,10 @@ async function guardar(){
   const datos = validar();
   if(!datos) return;
 
-  if(!soportaFSA()){
+  if(!modoEscritorio()){
     mostrarMensaje("err",
-      "❌ Este navegador no permite guardar directamente en la carpeta.\n" +
-      "En la Lenovo Tab usa «Compartir a OneDrive». En escritorio usa Edge o Chrome.");
+      "❌ En esta tablet no se puede guardar directo en carpeta (abriría Files de Lenovo, sin OneDrive).\n" +
+      "Usa el botón «📤 Compartir a OneDrive». En escritorio usa Edge o Chrome.");
     return;
   }
 
@@ -816,8 +833,9 @@ document.getElementById("btnCarpeta").addEventListener("click", elegirCarpeta);
 document.getElementById("btnImprimir").addEventListener("click", () => window.print());
 
 (async function inicio(){
-  if(!soportaFSA()){
-    // Sin File System Access (Lenovo Tab / Android): guiar hacia «Compartir».
+  if(!modoEscritorio()){
+    // Tablet / Android: guiar hacia «Compartir» (aunque el navegador
+    // diga que soporta showDirectoryPicker, ahí no sirve para OneDrive).
     document.getElementById("btnGuardar").disabled = true;
     document.getElementById("btnGuardar").style.opacity = ".5";
     document.getElementById("btnCarpeta").disabled = true;
