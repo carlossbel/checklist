@@ -198,12 +198,10 @@
 
 <!-- ================= BARRA DE ACCIONES (no entra al PDF) ================= -->
 <div class="barra-acciones">
-  <button id="btnGuardar">💾 Guardar</button>
-  <button id="btnCompartir" class="secundario">📤 Compartir en OneDrive</button>
+  <button id="btnGuardar">💾 Guardar en OneDrive</button>
   <button id="btnDescargar" class="secundario">⬇️ Descargar PDF</button>
-  <button id="btnCarpeta" class="plano" title="Vuelve a pedir la carpeta raíz checklist">📁 Elegir carpeta…</button>
   <button id="btnImprimir" class="plano">🖨️ Imprimir</button>
-  <span class="estado" id="estadoCarpeta">Carpeta destino: <b>no seleccionada</b></span>
+  <span class="estado" id="estadoCarpeta"></span>
 </div>
 
 <div class="mensaje" id="mensaje"></div>
@@ -825,32 +823,13 @@ async function descargarPdf(){
 
 /* ================================================================
    13) BOTONES + ESTADO INICIAL
+   El botón «Guardar» hace el flujo de compartir a OneDrive (funciona
+   igual en tablet y escritorio): genera el PDF y abre el menú para
+   elegir OneDrive y guardar en la carpeta del día.
    ================================================================ */
-document.getElementById("btnGuardar").addEventListener("click", guardar);
-document.getElementById("btnCompartir").addEventListener("click", compartirPdf);
+document.getElementById("btnGuardar").addEventListener("click", compartirPdf);
 document.getElementById("btnDescargar").addEventListener("click", descargarPdf);
-document.getElementById("btnCarpeta").addEventListener("click", elegirCarpeta);
 document.getElementById("btnImprimir").addEventListener("click", () => window.print());
-
-(async function inicio(){
-  if(!modoEscritorio()){
-    // Tablet / Android: guiar hacia «Compartir» (aunque el navegador
-    // diga que soporta showDirectoryPicker, ahí no sirve para OneDrive).
-    document.getElementById("btnGuardar").disabled = true;
-    document.getElementById("btnGuardar").style.opacity = ".5";
-    document.getElementById("btnCarpeta").disabled = true;
-    document.getElementById("btnCarpeta").style.opacity = ".5";
-    estadoCarpeta.innerHTML = "Modo tablet: usa <b>Compartir a OneDrive</b>";
-    mostrarMensaje("info",
-      "ℹ️ En esta tablet el guardado directo en carpeta no está disponible. " +
-      "Llena el checklist y usa <b>📤 Compartir a OneDrive</b> para enviarlo a la carpeta del día. " +
-      "El guardado automático en carpeta solo funciona en Edge/Chrome de escritorio.");
-    return;
-  }
-
-  const handle = await leerHandle();
-  if(handle) actualizarEstadoCarpeta(handle.name + " (recordada)");
-})();
 </script>
 </body>
 </html>
