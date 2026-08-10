@@ -199,6 +199,7 @@
 <!-- ================= BARRA DE ACCIONES (no entra al PDF) ================= -->
 <div class="barra-acciones">
   <button id="btnGuardar">💾 Guardar</button>
+  <button id="btnCompartir" class="secundario">📤 Compartir en OneDrive</button>
   <button id="btnDescargar" class="secundario">⬇️ Descargar PDF</button>
   <button id="btnCarpeta" class="plano" title="Vuelve a pedir la carpeta raíz checklist">📁 Elegir carpeta…</button>
   <button id="btnImprimir" class="plano">🖨️ Imprimir</button>
@@ -392,8 +393,6 @@
 /* ================================================================
    1) CRITERIOS DE LA REVISIÓN FÍSICA
    Orden y nombres EXACTOS del formato FO-AB-002.
-   Cada criterio usa CHECKBOXES independientes (como el Excel:
-   se pueden marcar SI y NO por separado).
    ================================================================ */
 const CRITERIOS = [
   "MERCANCÍA CORRECTA",
@@ -418,8 +417,6 @@ const CRITERIOS = [
 
 /* ================================================================
    1.b) SI / NO MUTUAMENTE EXCLUYENTES
-   Aunque se ven como checkboxes (igual que el Excel), al marcar uno
-   se desmarca el otro: solo se puede elegir una opción por fila.
    ================================================================ */
 function exclusivo(idA, idB){
   const a = document.getElementById(idA);
@@ -428,25 +425,18 @@ function exclusivo(idA, idB){
   a.addEventListener("change", () => { if(a.checked) b.checked = false; });
   b.addEventListener("change", () => { if(b.checked) a.checked = false; });
 }
-// Cada criterio (5 filas) + la pregunta "¿Mercancía etiquetada?"
 CRITERIOS.forEach((_, i) => exclusivo("critSi" + i, "critNo" + i));
 exclusivo("etiqSi", "etiqNo");
 
 /* ================================================================
    1.c) CROL: SOLO NÚMEROS
-   Filtra cualquier carácter que no sea dígito mientras se escribe.
    ================================================================ */
 document.getElementById("crol").addEventListener("input", (e) => {
   e.target.value = e.target.value.replace(/[^0-9]/g, "");
 });
 
 /* ================================================================
-   1.d) FIRMAS: dibujar en pantalla (dedo / lápiz / mouse) o cargar imagen
-   Cada recuadro .firmaWrap tiene un <canvas>. Se usa Pointer Events,
-   que unifican táctil (tablet), lápiz y mouse. El trazo o la imagen
-   cargada quedan dibujados en el canvas y html2canvas los incluye en
-   el PDF. Los botones (Limpiar / Cargar) llevan la clase "no-pdf" para
-   que NO aparezcan en el PDF.
+   1.d) FIRMAS: dibujar (dedo / lápiz / mouse) o cargar imagen
    ================================================================ */
 function initFirma(wrap){
   const canvas = wrap.querySelector(".firmaCanvas");
@@ -454,10 +444,8 @@ function initFirma(wrap){
   const ctx    = canvas.getContext("2d");
   let pintando = false;
 
-  // Estilo del trazo
   ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#111";
 
-  // Convierte la posición del puntero a coordenadas internas del canvas
   function coords(e){
     const r = canvas.getBoundingClientRect();
     return {
@@ -476,13 +464,11 @@ function initFirma(wrap){
   canvas.addEventListener("pointermove", mover);
   window.addEventListener("pointerup", terminar);
 
-  // Botón Limpiar
   wrap.querySelector(".fClear").addEventListener("click", () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     mostrarHint();
   });
 
-  // Cargar imagen de firma (se dibuja centrada y proporcional dentro del canvas)
   wrap.querySelector(".fUpload input").addEventListener("change", (e) => {
     const archivo = e.target.files[0];
     if(!archivo) return;
@@ -497,13 +483,13 @@ function initFirma(wrap){
       ocultarHint();
     };
     img.src = URL.createObjectURL(archivo);
-    e.target.value = ""; // permite volver a cargar el mismo archivo
+    e.target.value = "";
   });
 }
 document.querySelectorAll(".firmaWrap").forEach(initFirma);
 
 /* ================================================================
-   2) FECHA POR DEFECTO = HOY (editable, va en el recuadro superior)
+   2) FECHA POR DEFECTO = HOY (editable)
    ================================================================ */
 function hoyISO(){
   const d = new Date();
@@ -511,9 +497,7 @@ function hoyISO(){
   const dd = String(d.getDate()).padStart(2, "0");
   return d.getFullYear() + "-" + mm + "-" + dd;
 }
-// Fecha del recuadro superior (debajo de "Código"): fija 12/11/2025 (editable)
-document.getElementById("fecha").value = "2025-11-12";
-// Fecha Entrada del bloque de recepción: siempre el día de hoy al abrir (editable)
+document.getElementById("fecha").value = hoyISO();
 document.getElementById("fechaEntrada").value = hoyISO();
 
 /* ================================================================
@@ -521,7 +505,7 @@ document.getElementById("fechaEntrada").value = hoyISO();
    ================================================================ */
 const zonaMensaje = document.getElementById("mensaje");
 function mostrarMensaje(tipo, texto){
-  zonaMensaje.className = "mensaje " + tipo;   // ok | err | info
+  zonaMensaje.className = "mensaje " + tipo;
   zonaMensaje.innerHTML = texto;
   zonaMensaje.scrollIntoView({ behavior:"smooth", block:"nearest" });
 }
@@ -549,20 +533,33 @@ function validar(){
 
 /* ================================================================
    5) SANEADO DE NOMBRES DE ARCHIVO
-   Quita acentos, espacios y caracteres inválidos (\ / : * ? " < > |).
    ================================================================ */
 function sanear(texto){
   return texto
-    .normalize("NFD").replace(/[̀-ͯ]/g, "") // elimina acentos/diacríticos (U+0300–U+036F)
-    .replace(/[\\/:*?"<>|]/g, "")                       // caracteres inválidos en Windows
-    .replace(/\s+/g, "_")                               // espacios -> guion bajo
-    .replace(/_+/g, "_")                                // colapsa guiones bajos repetidos
-    .replace(/^_+|_+$/g, "")                            // recorta extremos
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
     .trim();
 }
 
 /* ================================================================
-   6) GENERACIÓN DEL PDF (idéntico al formato lleno, paginado A4)
+   5.b) NOMBRES DE ARCHIVO
+   - Para GUARDAR en carpeta (escritorio): CROL_Cliente.pdf
+     (la carpeta del día ya lo ordena por fecha).
+   - Para COMPARTIR / DESCARGAR (tablet): AAAA-MM-DD_CROL_Cliente.pdf
+     (Miguel elige la carpeta a mano, así queda ordenado por fecha).
+   ================================================================ */
+function nombreBase(datos){
+  return sanear(datos.crol) + "_" + sanear(datos.cliente) + ".pdf";
+}
+function nombreConFecha(datos){
+  return hoyISO() + "_" + sanear(datos.crol) + "_" + sanear(datos.cliente) + ".pdf";
+}
+
+/* ================================================================
+   6) GENERACIÓN DEL PDF (paginado A4)
    ================================================================ */
 async function generarPdfBlob(){
   const overlay = document.getElementById("overlay");
@@ -571,7 +568,6 @@ async function generarPdfBlob(){
     const hoja = document.getElementById("hoja");
     const canvas = await html2canvas(hoja, {
       scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: hoja.scrollWidth,
-      // Excluye del PDF los botones/ayudas de las firmas (clase "no-pdf")
       ignoreElements: (el) => el.classList && el.classList.contains("no-pdf")
     });
 
@@ -586,7 +582,6 @@ async function generarPdfBlob(){
     if(altoImagen <= altoPagina - margen * 2){
       pdf.addImage(canvas.toDataURL("image/png"), "PNG", margen, margen, anchoUtil, altoImagen);
     }else{
-      // Paginado: cortar el canvas en franjas del alto de una página.
       const altoUtilPagina = altoPagina - margen * 2;
       const pxPorPagina = Math.floor((altoUtilPagina * canvas.width) / anchoUtil);
       let posicionY = 0, primera = true;
@@ -656,11 +651,28 @@ async function asegurarPermiso(handle){
 const estadoCarpeta = document.getElementById("estadoCarpeta");
 function soportaFSA(){ return typeof window.showDirectoryPicker === "function"; }
 
+/* ¿Es un dispositivo táctil / Android (tablet o teléfono)?
+   En estos, aunque el navegador "soporte" showDirectoryPicker, el
+   selector abre Files del sistema (Lenovo) y NO expone OneDrive, y el
+   guardado no funciona bien. Por eso ahí forzamos el modo Compartir. */
+function esMovil(){
+  const ua = navigator.userAgent || "";
+  const uaMobile = (navigator.userAgentData && typeof navigator.userAgentData.mobile === "boolean")
+    ? navigator.userAgentData.mobile
+    : /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+  const tactil = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+  const esAndroidOiOS = /Android|iPhone|iPad|iPod/i.test(ua);
+  return uaMobile || (tactil && esAndroidOiOS);
+}
+
+/* El guardado directo en carpeta solo se habilita en ESCRITORIO real. */
+function modoEscritorio(){ return soportaFSA() && !esMovil(); }
+
 async function elegirCarpeta(){
-  if(!soportaFSA()){
+  if(!modoEscritorio()){
     mostrarMensaje("err",
-      "❌ Tu navegador no soporta la API de archivos (File System Access).\n" +
-      "Usa Microsoft Edge o Google Chrome de escritorio. Mientras tanto, usa «Descargar PDF».");
+      "❌ En esta tablet no se puede guardar directo en carpeta (abriría Files de Lenovo, sin OneDrive).\n" +
+      "Usa el botón «📤 Compartir a OneDrive». El guardado en carpeta solo funciona en Edge/Chrome de escritorio.");
     return null;
   }
   try{
@@ -689,17 +701,17 @@ async function obtenerCarpetaRaiz(pedirSiNoHay){
 function actualizarEstadoCarpeta(nombre){ estadoCarpeta.innerHTML = "Carpeta destino: <b>" + nombre + "</b>"; }
 
 /* ================================================================
-   10) GUARDAR: valida -> PDF -> carpeta/fecha/archivo -> confirma
+   10) GUARDAR (solo escritorio Edge/Chrome): PDF -> carpeta/fecha/archivo
    ================================================================ */
 async function guardar(){
   limpiarMensaje();
   const datos = validar();
   if(!datos) return;
 
-  if(!soportaFSA()){
+  if(!modoEscritorio()){
     mostrarMensaje("err",
-      "❌ Este navegador no permite guardar directamente en la carpeta.\n" +
-      "Usa Edge/Chrome de escritorio, o pulsa «Descargar PDF» como respaldo.");
+      "❌ En esta tablet no se puede guardar directo en carpeta (abriría Files de Lenovo, sin OneDrive).\n" +
+      "Usa el botón «📤 Compartir a OneDrive». En escritorio usa Edge o Chrome.");
     return;
   }
 
@@ -707,12 +719,9 @@ async function guardar(){
   if(!raiz) return;
 
   try{
-    // La carpeta del día se nombra con la fecha REAL de hoy (AAAA-MM-DD),
-    // sin importar lo que diga el campo "Fecha" del formulario. Así se
-    // organiza sola una carpeta por día.
     const subfecha = hoyISO();
     const dirFecha = await raiz.getDirectoryHandle(subfecha, { create:true });
-    const nombreArchivo = sanear(datos.crol) + "_" + sanear(datos.cliente) + ".pdf";
+    const nombreArchivo = nombreBase(datos);
 
     if(await archivoExiste(dirFecha, nombreArchivo)){
       const ok = confirm(
@@ -743,7 +752,58 @@ async function archivoExiste(dirHandle, nombre){
 }
 
 /* ================================================================
-   11) DESCARGAR PDF (respaldo universal)
+   11) COMPARTIR A ONEDRIVE (Web Share API) — PARA LA LENOVO TAB
+   Genera el PDF y abre el menú de compartir de Android para que
+   Miguel elija OneDrive y lo guarde en la carpeta del día.
+   El nombre lleva AAAA-MM-DD + CROL + Cliente: aunque la carpeta la
+   elija a mano, todo queda ordenado por fecha y por CROL.
+   NOTA: la Web Share API NO crea carpetas; la estructura
+   checklist/{día}/ la arma Miguel al guardar (una vez por día).
+   ================================================================ */
+async function compartirPdf(){
+  limpiarMensaje();
+  const datos = validar();
+  if(!datos) return;
+
+  try{
+    const blob = await generarPdfBlob();
+    const nombreArchivo = nombreConFecha(datos);
+    const archivo = new File([blob], nombreArchivo, { type: "application/pdf" });
+
+    if(navigator.canShare && navigator.canShare({ files: [archivo] })){
+      await navigator.share({
+        files: [archivo],
+        title: "Checklist " + datos.crol,
+        text:  "Checklist FO-AB-002 · CROL " + datos.crol + " · " + datos.cliente
+      });
+      mostrarMensaje("ok",
+        "📤 Menú de compartir abierto.\nElige <b>OneDrive</b> y guarda en la carpeta " +
+        "<b>checklist / " + hoyISO() + "</b>.\nArchivo: <b>" + nombreArchivo + "</b>");
+    } else {
+      // Respaldo: descarga si el navegador no puede compartir archivos.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = nombreArchivo;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      mostrarMensaje("info",
+        "Este navegador no permite compartir archivos; se descargó el PDF. " +
+        "Súbelo a <b>checklist / " + hoyISO() + "</b> desde la app de OneDrive.");
+    }
+  }catch(e){
+    if(e && e.name === "AbortError")
+      mostrarMensaje("info", "Se canceló el compartir.");
+    else if(e && e.name === "NotAllowedError")
+      mostrarMensaje("err",
+        "El navegador bloqueó el compartir (el PDF tardó mucho en generarse). " +
+        "Vuelve a intentarlo. Si pasa seguido, baja «scale: 2» a «scale: 1.5» en html2canvas.");
+    else
+      mostrarMensaje("err", "❌ No se pudo compartir: " + (e.message || e));
+  }
+}
+
+/* ================================================================
+   12) DESCARGAR PDF (respaldo universal)
    ================================================================ */
 async function descargarPdf(){
   limpiarMensaje();
@@ -751,7 +811,7 @@ async function descargarPdf(){
   if(!datos) return;
   try{
     const blob = await generarPdfBlob();
-    const nombreArchivo = sanear(datos.crol) + "_" + sanear(datos.cliente) + ".pdf";
+    const nombreArchivo = nombreConFecha(datos);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = nombreArchivo;
@@ -764,20 +824,30 @@ async function descargarPdf(){
 }
 
 /* ================================================================
-   12) BOTONES + ESTADO INICIAL
+   13) BOTONES + ESTADO INICIAL
    ================================================================ */
 document.getElementById("btnGuardar").addEventListener("click", guardar);
+document.getElementById("btnCompartir").addEventListener("click", compartirPdf);
 document.getElementById("btnDescargar").addEventListener("click", descargarPdf);
 document.getElementById("btnCarpeta").addEventListener("click", elegirCarpeta);
 document.getElementById("btnImprimir").addEventListener("click", () => window.print());
 
 (async function inicio(){
-  if(!soportaFSA()){
+  if(!modoEscritorio()){
+    // Tablet / Android: guiar hacia «Compartir» (aunque el navegador
+    // diga que soporta showDirectoryPicker, ahí no sirve para OneDrive).
+    document.getElementById("btnGuardar").disabled = true;
+    document.getElementById("btnGuardar").style.opacity = ".5";
+    document.getElementById("btnCarpeta").disabled = true;
+    document.getElementById("btnCarpeta").style.opacity = ".5";
+    estadoCarpeta.innerHTML = "Modo tablet: usa <b>Compartir a OneDrive</b>";
     mostrarMensaje("info",
-      "ℹ️ Este navegador no soporta guardado directo en carpeta. Podrás usar «Descargar PDF». " +
-      "Para guardar en OneDrive usa Edge o Chrome de escritorio.");
+      "ℹ️ En esta tablet el guardado directo en carpeta no está disponible. " +
+      "Llena el checklist y usa <b>📤 Compartir a OneDrive</b> para enviarlo a la carpeta del día. " +
+      "El guardado automático en carpeta solo funciona en Edge/Chrome de escritorio.");
     return;
   }
+
   const handle = await leerHandle();
   if(handle) actualizarEstadoCarpeta(handle.name + " (recordada)");
 })();
