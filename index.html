@@ -288,7 +288,7 @@
             <option>ADISTEC</option>
           </select>
         </td>
-        <td class="descLbl" rowspan="3">
+        <td class="descLbl" rowspan="4">
           <span class="rotulo">BREVE DESCRIPCIÓN DE LA MERCANCÍA:</span>
           <textarea id="descripcion"></textarea>
         </td>
@@ -302,6 +302,24 @@
         <td class="val">
           <input type="text" id="cliente" list="listaClientes" autocomplete="off" />
           <datalist id="listaClientes"></datalist>
+        </td>
+      </tr>
+      <tr>
+        <td class="lbl">Partida:</td>
+        <td class="val">
+          <select id="partida">
+            <option value=""></option>
+            <option>1</option>
+            <option>2</option>
+            <option>3</option>
+            <option>4</option>
+            <option>5</option>
+            <option>6</option>
+            <option>7</option>
+            <option>8</option>
+            <option>9</option>
+            <option>10</option>
+          </select>
         </td>
       </tr>
     </table>
@@ -628,22 +646,24 @@ function guardarCliente(nombre){
 pintarClientes();
 
 /* ================================================================
-   4) VALIDACIÓN DE OBLIGATORIOS: CROL y Cliente
+   4) VALIDACIÓN DE OBLIGATORIOS: CROL, Cliente y Partida
    (La Fecha del encabezado es fija, ya no se valida.)
    ================================================================ */
 function validar(){
   const crol    = document.getElementById("crol").value.trim();
   const cliente = document.getElementById("cliente").value.trim();
+  const partida = document.getElementById("partida").value.trim();
 
   const faltantes = [];
   if(!crol)    faltantes.push("Orden de Compra CROL");
   if(!cliente) faltantes.push("Cliente");
+  if(!partida) faltantes.push("Partida");
 
   if(faltantes.length){
     mostrarMensaje("err", "⚠️ Faltan campos obligatorios: " + faltantes.join(", ") + ".");
     return null;
   }
-  return { crol, cliente };
+  return { crol, cliente, partida };
 }
 
 /* ================================================================
@@ -661,16 +681,18 @@ function sanear(texto){
 
 /* ================================================================
    5.b) NOMBRES DE ARCHIVO
-   - Para GUARDAR en carpeta (escritorio): CROL_Cliente.pdf
-     (la carpeta del día ya lo ordena por fecha).
-   - Para COMPARTIR / DESCARGAR (tablet): AAAA-MM-DD_CROL_Cliente.pdf
-     (Miguel elige la carpeta a mano, así queda ordenado por fecha).
+   Formato: AAAA-MM-DD_CROL_ptN_Cliente.pdf
+   - La fecha al inicio mantiene el orden por día.
+   - ptN identifica la partida (una CROL puede traer varias).
    ================================================================ */
-function nombreBase(datos){
-  return sanear(datos.crol) + "_" + sanear(datos.cliente) + ".pdf";
-}
 function nombreConFecha(datos){
-  return hoyISO() + "_" + sanear(datos.crol) + "_" + sanear(datos.cliente) + ".pdf";
+  return hoyISO() + "_" + sanear(datos.crol) + "_pt" + sanear(datos.partida) +
+         "_" + sanear(datos.cliente) + ".pdf";
+}
+
+/* Llave única de un borrador: CROL + partida (para no encimar partidas) */
+function claveBorrador(crol, partida){
+  return sanear(crol) + "_pt" + sanear(partida);
 }
 
 /* ================================================================
@@ -836,7 +858,7 @@ async function guardar(){
   try{
     const subfecha = hoyISO();
     const dirFecha = await raiz.getDirectoryHandle(subfecha, { create:true });
-    const nombreArchivo = nombreBase(datos);
+    const nombreArchivo = nombreConFecha(datos);
 
     if(await archivoExiste(dirFecha, nombreArchivo)){
       const ok = confirm(
@@ -892,7 +914,7 @@ async function compartirPdf(){
         title: "Checklist " + datos.crol,
         text:  "Checklist FO-AB-002 · CROL " + datos.crol + " · " + datos.cliente
       });
-      borrarBorradorSilencioso(datos.crol);   // ya se completó: sale de pendientes
+      borrarBorradorSilencioso(claveBorrador(datos.crol, datos.partida));   // ya se completó: sale de pendientes
       mostrarMensaje("ok",
         "📤 Menú de compartir abierto.\nElige <b>OneDrive</b> y guarda en la carpeta " +
         "<b>checklist / " + hoyISO() + "</b>.\nArchivo: <b>" + nombreArchivo + "</b>");
@@ -903,7 +925,7 @@ async function compartirPdf(){
       a.href = url; a.download = nombreArchivo;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
-      borrarBorradorSilencioso(datos.crol);   // ya se completó: sale de pendientes
+      borrarBorradorSilencioso(claveBorrador(datos.crol, datos.partida));   // ya se completó: sale de pendientes
       mostrarMensaje("info",
         "Este navegador no permite compartir archivos; se descargó el PDF. " +
         "Súbelo a <b>checklist / " + hoyISO() + "</b> desde la app de OneDrive.");
@@ -936,7 +958,7 @@ async function descargarPdf(){
     a.href = url; a.download = nombreArchivo;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
-    borrarBorradorSilencioso(datos.crol);   // al generar el PDF, sale de pendientes
+    borrarBorradorSilencioso(claveBorrador(datos.crol, datos.partida));   // al generar el PDF, sale de pendientes
     mostrarMensaje("ok", "⬇️ PDF descargado: <b>" + nombreArchivo + "</b>");
   }catch(e){
     mostrarMensaje("err", "❌ No se pudo generar el PDF: " + (e.message || e));
@@ -956,7 +978,7 @@ const PASS_BORRAR = "bloobit";
 
 /* Campos simples (input/select/textarea) que se guardan por su id */
 const CAMPOS_SIMPLES = [
-  "proveedor","crol","cliente","descripcion",
+  "proveedor","crol","cliente","partida","descripcion",
   "totalOrdenado","totalRecibido","fechaEntrada","reviso",
   "piezasRecibidas","fechaSalida","recibioNombre","factura","obsSalida"
 ];
@@ -1032,30 +1054,35 @@ function escribirBorradores(obj){
   }
 }
 
-/* Guardar borrador: la CROL es la llave (identifica cada checklist) */
+/* Guardar borrador: la llave es CROL + Partida (cada partida es su
+   propio checklist, para que no se encimen entre sí) */
 function guardarBorrador(){
   limpiarMensaje();
   const crol = document.getElementById("crol").value.trim();
-  if(!crol){
-    mostrarMensaje("err", "Para guardar un borrador, primero captura la <b>Orden de Compra CROL</b>.");
+  const partida = document.getElementById("partida").value.trim();
+  if(!crol || !partida){
+    mostrarMensaje("err", "Para guardar un borrador, captura la <b>CROL</b> y la <b>Partida</b>.");
     return;
   }
+  const clave = claveBorrador(crol, partida);
   const datos = recolectarFormulario();
   const todos = leerBorradores();
-  todos[crol] = {
+  todos[clave] = {
     datos,
+    crol: crol,
+    partida: partida,
     cliente: document.getElementById("cliente").value.trim(),
     guardadoEn: new Date().toISOString()
   };
   escribirBorradores(todos);
   renderPendientes();
-  mostrarMensaje("ok", "📝 Borrador guardado para la CROL <b>" + crol + "</b>. Aparece en «Pendientes».");
+  mostrarMensaje("ok", "📝 Borrador guardado: CROL <b>" + crol + "</b> · Partida <b>" + partida + "</b>. Aparece en «Pendientes».");
 }
 
-/* Borra un borrador por CROL (uso interno, sin contraseña) */
-function borrarBorradorSilencioso(crol){
+/* Borra un borrador por su llave (uso interno, sin contraseña) */
+function borrarBorradorSilencioso(clave){
   const todos = leerBorradores();
-  if(todos[crol]){ delete todos[crol]; escribirBorradores(todos); renderPendientes(); }
+  if(todos[clave]){ delete todos[clave]; escribirBorradores(todos); renderPendientes(); }
 }
 
 /* Contador y lista visible */
@@ -1075,17 +1102,20 @@ function renderPendientes(){
     cont.innerHTML = '<div class="pend-vacio">No hay checklists pendientes.</div>';
     return;
   }
-  claves.forEach(crol => {
-    const b = todos[crol];
+  claves.forEach(clave => {
+    const b = todos[clave];
     const f = b.guardadoEn ? new Date(b.guardadoEn) : null;
     const fTxt = f ? (String(f.getDate()).padStart(2,"0") + "/" +
                       String(f.getMonth()+1).padStart(2,"0") + "/" + f.getFullYear() +
                       " " + String(f.getHours()).padStart(2,"0") + ":" +
                       String(f.getMinutes()).padStart(2,"0")) : "";
+    const crol = b.crol || clave;
+    const partida = b.partida || "";
     const item = document.createElement("div");
     item.className = "pend-item";
     item.innerHTML =
       '<div class="pend-info">CROL <b>' + crol + '</b>' +
+      (partida ? ' · Partida <b>' + partida + '</b>' : '') +
       (b.cliente ? ' · ' + b.cliente : '') +
       '<div class="pend-fecha">Guardado: ' + fTxt + '</div></div>';
     const abrir = document.createElement("button");
@@ -1093,17 +1123,17 @@ function renderPendientes(){
     abrir.addEventListener("click", () => {
       aplicarFormulario(b.datos);
       document.getElementById("panelPendientes").style.display = "none";
-      mostrarMensaje("info", "Borrador de la CROL <b>" + crol + "</b> cargado. Completa la salida y genera el PDF.");
+      mostrarMensaje("info", "Borrador cargado: CROL <b>" + crol + "</b> · Partida <b>" + partida + "</b>. Completa la salida y genera el PDF.");
       window.scrollTo({ top:0, behavior:"smooth" });
     });
     const borrar = document.createElement("button");
     borrar.className = "pBorrar"; borrar.textContent = "Borrar";
     borrar.addEventListener("click", () => {
-      const pass = prompt("Para borrar el pendiente CROL " + crol + ", escribe la contraseña:");
+      const pass = prompt("Para borrar el pendiente CROL " + crol + " · Partida " + partida + ", escribe la contraseña:");
       if(pass === null) return;
       if(pass !== PASS_BORRAR){ mostrarMensaje("err", "Contraseña incorrecta. No se borró nada."); return; }
-      borrarBorradorSilencioso(crol);
-      mostrarMensaje("ok", "Pendiente CROL " + crol + " borrado.");
+      borrarBorradorSilencioso(clave);
+      mostrarMensaje("ok", "Pendiente CROL " + crol + " · Partida " + partida + " borrado.");
     });
     item.appendChild(abrir);
     item.appendChild(borrar);
