@@ -63,6 +63,28 @@
   .barra-acciones .estado{ margin-left:auto; font-size:12px; color:#333; max-width:44%; line-height:1.35; }
   .estado a{ color:var(--azul); }
 
+  /* Panel de borradores pendientes */
+  .panel-pendientes{
+    margin:0 16px; padding:12px 14px; background:#f2f6fb;
+    border:1px solid #b9d0ea; border-radius:8px;
+  }
+  .panel-pendientes .pend-titulo{ font-weight:700; color:var(--azul); margin-bottom:8px; font-size:13px; }
+  .pend-item{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background:#fff; border:1px solid #d3dde8; border-radius:6px;
+    padding:8px 12px; margin-bottom:7px;
+  }
+  .pend-item .pend-info{ flex:1 1 auto; min-width:180px; font-size:13px; }
+  .pend-item .pend-info b{ color:#0d3a5c; }
+  .pend-item .pend-fecha{ color:#667; font-size:11px; }
+  .pend-item button{
+    font-size:12px; font-weight:600; padding:6px 12px; border:none;
+    border-radius:5px; cursor:pointer; color:#fff;
+  }
+  .pend-item .pAbrir{ background:var(--azul); }
+  .pend-item .pBorrar{ background:#c0504d; }
+  .pend-vacio{ color:#667; font-size:13px; font-style:italic; }
+
   /* Zona de mensajes (errores / confirmaciones) */
   .mensaje{
     margin:10px 16px 0; padding:11px 14px; border-radius:6px;
@@ -203,10 +225,19 @@
 
 <!-- ================= BARRA DE ACCIONES (no entra al PDF) ================= -->
 <div class="barra-acciones">
+  <button id="btnBorrador" class="secundario">📝 Guardar borrador</button>
+  <button id="btnPendientes" class="plano">📋 Pendientes (0)</button>
   <button id="btnGuardar">💾 Guardar en OneDrive</button>
   <button id="btnDescargar" class="secundario">⬇️ Descargar PDF</button>
   <button id="btnImprimir" class="plano">🖨️ Imprimir</button>
+  <button id="btnNuevo" class="plano">➕ Nuevo</button>
   <span class="estado" id="estadoCarpeta"></span>
+</div>
+
+<!-- Panel de borradores pendientes (se muestra/oculta) -->
+<div class="panel-pendientes" id="panelPendientes" style="display:none">
+  <div class="pend-titulo">Checklists pendientes por completar</div>
+  <div id="listaPendientes"></div>
 </div>
 
 <div class="mensaje" id="mensaje"></div>
@@ -333,7 +364,7 @@
             <td class="lbl">Firma</td>
             <td class="val firmaCelda" colspan="3">
               <div class="firmaWrap">
-                <canvas class="firmaCanvas" width="620" height="96"></canvas>
+                <canvas class="firmaCanvas" id="firmaRecepcion" width="620" height="96"></canvas>
                 <span class="firmaHint no-pdf"></span>
                 <div class="firmaBtns no-pdf">
                   <button type="button" class="fbtn fClear">Limpiar</button>
@@ -378,7 +409,7 @@
             <td class="lbl">Firma</td>
             <td class="val firmaCelda">
               <div class="firmaWrap">
-                <canvas class="firmaCanvas" width="380" height="96"></canvas>
+                <canvas class="firmaCanvas" id="firmaSalida" width="380" height="96"></canvas>
                 <span class="firmaHint no-pdf"></span>
                 <div class="firmaBtns no-pdf">
                   <button type="button" class="fbtn fClear">Limpiar</button>
@@ -503,7 +534,32 @@ function initFirma(wrap){
     img.src = URL.createObjectURL(archivo);
     e.target.value = "";
   });
+
+  // --- Registro para guardar/restaurar la firma en borradores ---
+  if(canvas.id){
+    FIRMAS[canvas.id] = {
+      // Devuelve la imagen de la firma, o "" si está en blanco.
+      obtener(){
+        const blank = document.createElement("canvas");
+        blank.width = canvas.width; blank.height = canvas.height;
+        return canvas.toDataURL() === blank.toDataURL() ? "" : canvas.toDataURL("image/png");
+      },
+      // Dibuja una firma guardada (o limpia si viene vacía).
+      restaurar(dataURL){
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if(dataURL){
+          const img = new Image();
+          img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); ocultarHint(); };
+          img.src = dataURL;
+        } else {
+          mostrarHint();
+        }
+      },
+      limpiar(){ ctx.clearRect(0, 0, canvas.width, canvas.height); mostrarHint(); }
+    };
+  }
 }
+const FIRMAS = {};   // { firmaRecepcion: {...}, firmaSalida: {...} }
 document.querySelectorAll(".firmaWrap").forEach(initFirma);
 
 /* ================================================================
@@ -836,6 +892,7 @@ async function compartirPdf(){
         title: "Checklist " + datos.crol,
         text:  "Checklist FO-AB-002 · CROL " + datos.crol + " · " + datos.cliente
       });
+      borrarBorradorSilencioso(datos.crol);   // ya se completó: sale de pendientes
       mostrarMensaje("ok",
         "📤 Menú de compartir abierto.\nElige <b>OneDrive</b> y guarda en la carpeta " +
         "<b>checklist / " + hoyISO() + "</b>.\nArchivo: <b>" + nombreArchivo + "</b>");
@@ -846,6 +903,7 @@ async function compartirPdf(){
       a.href = url; a.download = nombreArchivo;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
+      borrarBorradorSilencioso(datos.crol);   // ya se completó: sale de pendientes
       mostrarMensaje("info",
         "Este navegador no permite compartir archivos; se descargó el PDF. " +
         "Súbelo a <b>checklist / " + hoyISO() + "</b> desde la app de OneDrive.");
@@ -878,6 +936,7 @@ async function descargarPdf(){
     a.href = url; a.download = nombreArchivo;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
+    borrarBorradorSilencioso(datos.crol);   // al generar el PDF, sale de pendientes
     mostrarMensaje("ok", "⬇️ PDF descargado: <b>" + nombreArchivo + "</b>");
   }catch(e){
     mostrarMensaje("err", "❌ No se pudo generar el PDF: " + (e.message || e));
@@ -885,14 +944,197 @@ async function descargarPdf(){
 }
 
 /* ================================================================
-   13) BOTONES + ESTADO INICIAL
-   El botón «Guardar» hace el flujo de compartir a OneDrive (funciona
-   igual en tablet y escritorio): genera el PDF y abre el menú para
-   elegir OneDrive y guardar en la carpeta del día.
+   13) BORRADORES (guardar a medio llenar y completar después)
+   Flujo: Recepción llena y toca «Guardar borrador». Miguel abre el
+   pendiente, completa la salida y genera el PDF; al generarlo, el
+   borrador se elimina de la lista automáticamente.
+   Todo se guarda en esta tablet (localStorage), incluidas las firmas.
+   ================================================================ */
+const BORRADORES_KEY = "checklist_borradores";
+/* Contraseña para BORRAR un pendiente a mano. Cámbiala si quieres. */
+const PASS_BORRAR = "bloobit";
+
+/* Campos simples (input/select/textarea) que se guardan por su id */
+const CAMPOS_SIMPLES = [
+  "proveedor","crol","cliente","descripcion",
+  "totalOrdenado","totalRecibido","fechaEntrada","reviso",
+  "piezasRecibidas","fechaSalida","recibioNombre","factura","obsSalida"
+];
+
+/* Reúne TODO el formulario en un objeto (incluye firmas) */
+function recolectarFormulario(){
+  const d = { campos:{}, checks:{}, obs:{}, firmas:{} };
+  CAMPOS_SIMPLES.forEach(id => {
+    const el = document.getElementById(id);
+    if(el) d.campos[id] = el.value;
+  });
+  CRITERIOS.forEach((_, i) => {
+    d.checks["critSi"+i] = document.getElementById("critSi"+i).checked;
+    d.checks["critNo"+i] = document.getElementById("critNo"+i).checked;
+    d.obs["obsCrit"+i]   = document.getElementById("obsCrit"+i).value;
+  });
+  d.checks["etiqSi"] = document.getElementById("etiqSi").checked;
+  d.checks["etiqNo"] = document.getElementById("etiqNo").checked;
+  d.firmas["firmaRecepcion"] = FIRMAS.firmaRecepcion ? FIRMAS.firmaRecepcion.obtener() : "";
+  d.firmas["firmaSalida"]    = FIRMAS.firmaSalida    ? FIRMAS.firmaSalida.obtener()    : "";
+  return d;
+}
+
+/* Vuelca un objeto guardado de vuelta al formulario */
+function aplicarFormulario(d){
+  if(!d) return;
+  CAMPOS_SIMPLES.forEach(id => {
+    const el = document.getElementById(id);
+    if(el && d.campos && id in d.campos) el.value = d.campos[id];
+  });
+  if(d.checks){
+    Object.keys(d.checks).forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.checked = !!d.checks[id];
+    });
+  }
+  if(d.obs){
+    Object.keys(d.obs).forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.value = d.obs[id];
+    });
+  }
+  if(d.firmas){
+    if(FIRMAS.firmaRecepcion) FIRMAS.firmaRecepcion.restaurar(d.firmas.firmaRecepcion || "");
+    if(FIRMAS.firmaSalida)    FIRMAS.firmaSalida.restaurar(d.firmas.firmaSalida || "");
+  }
+}
+
+/* Limpia el formulario para empezar uno nuevo */
+function nuevoFormulario(){
+  CAMPOS_SIMPLES.forEach(id => { const el = document.getElementById(id); if(el) el.value = ""; });
+  CRITERIOS.forEach((_, i) => {
+    document.getElementById("critSi"+i).checked = false;
+    document.getElementById("critNo"+i).checked = false;
+    document.getElementById("obsCrit"+i).value = "";
+  });
+  document.getElementById("etiqSi").checked = false;
+  document.getElementById("etiqNo").checked = false;
+  if(FIRMAS.firmaRecepcion) FIRMAS.firmaRecepcion.limpiar();
+  if(FIRMAS.firmaSalida)    FIRMAS.firmaSalida.limpiar();
+  document.getElementById("fechaEntrada").value = hoyISO();
+  limpiarMensaje();
+}
+
+/* Lee/guarda el mapa de borradores { crol: {datos, guardadoEn} } */
+function leerBorradores(){
+  try{ const t = localStorage.getItem(BORRADORES_KEY); return t ? JSON.parse(t) : {}; }
+  catch(e){ return {}; }
+}
+function escribirBorradores(obj){
+  try{ localStorage.setItem(BORRADORES_KEY, JSON.stringify(obj)); }catch(e){
+    mostrarMensaje("err", "No se pudo guardar el borrador (memoria del navegador llena).");
+  }
+}
+
+/* Guardar borrador: la CROL es la llave (identifica cada checklist) */
+function guardarBorrador(){
+  limpiarMensaje();
+  const crol = document.getElementById("crol").value.trim();
+  if(!crol){
+    mostrarMensaje("err", "Para guardar un borrador, primero captura la <b>Orden de Compra CROL</b>.");
+    return;
+  }
+  const datos = recolectarFormulario();
+  const todos = leerBorradores();
+  todos[crol] = {
+    datos,
+    cliente: document.getElementById("cliente").value.trim(),
+    guardadoEn: new Date().toISOString()
+  };
+  escribirBorradores(todos);
+  renderPendientes();
+  mostrarMensaje("ok", "📝 Borrador guardado para la CROL <b>" + crol + "</b>. Aparece en «Pendientes».");
+}
+
+/* Borra un borrador por CROL (uso interno, sin contraseña) */
+function borrarBorradorSilencioso(crol){
+  const todos = leerBorradores();
+  if(todos[crol]){ delete todos[crol]; escribirBorradores(todos); renderPendientes(); }
+}
+
+/* Contador y lista visible */
+function actualizarContadorPendientes(){
+  const n = Object.keys(leerBorradores()).length;
+  document.getElementById("btnPendientes").textContent = "📋 Pendientes (" + n + ")";
+}
+
+function renderPendientes(){
+  actualizarContadorPendientes();
+  const cont = document.getElementById("listaPendientes");
+  const todos = leerBorradores();
+  const claves = Object.keys(todos).sort((a,b) =>
+    (todos[b].guardadoEn || "").localeCompare(todos[a].guardadoEn || ""));
+  cont.innerHTML = "";
+  if(claves.length === 0){
+    cont.innerHTML = '<div class="pend-vacio">No hay checklists pendientes.</div>';
+    return;
+  }
+  claves.forEach(crol => {
+    const b = todos[crol];
+    const f = b.guardadoEn ? new Date(b.guardadoEn) : null;
+    const fTxt = f ? (String(f.getDate()).padStart(2,"0") + "/" +
+                      String(f.getMonth()+1).padStart(2,"0") + "/" + f.getFullYear() +
+                      " " + String(f.getHours()).padStart(2,"0") + ":" +
+                      String(f.getMinutes()).padStart(2,"0")) : "";
+    const item = document.createElement("div");
+    item.className = "pend-item";
+    item.innerHTML =
+      '<div class="pend-info">CROL <b>' + crol + '</b>' +
+      (b.cliente ? ' · ' + b.cliente : '') +
+      '<div class="pend-fecha">Guardado: ' + fTxt + '</div></div>';
+    const abrir = document.createElement("button");
+    abrir.className = "pAbrir"; abrir.textContent = "Abrir";
+    abrir.addEventListener("click", () => {
+      aplicarFormulario(b.datos);
+      document.getElementById("panelPendientes").style.display = "none";
+      mostrarMensaje("info", "Borrador de la CROL <b>" + crol + "</b> cargado. Completa la salida y genera el PDF.");
+      window.scrollTo({ top:0, behavior:"smooth" });
+    });
+    const borrar = document.createElement("button");
+    borrar.className = "pBorrar"; borrar.textContent = "Borrar";
+    borrar.addEventListener("click", () => {
+      const pass = prompt("Para borrar el pendiente CROL " + crol + ", escribe la contraseña:");
+      if(pass === null) return;
+      if(pass !== PASS_BORRAR){ mostrarMensaje("err", "Contraseña incorrecta. No se borró nada."); return; }
+      borrarBorradorSilencioso(crol);
+      mostrarMensaje("ok", "Pendiente CROL " + crol + " borrado.");
+    });
+    item.appendChild(abrir);
+    item.appendChild(borrar);
+    cont.appendChild(item);
+  });
+}
+
+function togglePendientes(){
+  const panel = document.getElementById("panelPendientes");
+  const visible = panel.style.display !== "none";
+  if(visible){ panel.style.display = "none"; }
+  else { renderPendientes(); panel.style.display = "block"; }
+}
+
+/* ================================================================
+   14) BOTONES + ESTADO INICIAL
+   «Guardar en OneDrive» genera el PDF (y al lograrlo borra el
+   pendiente de esa CROL). «Guardar borrador» guarda a medio llenar.
    ================================================================ */
 document.getElementById("btnGuardar").addEventListener("click", compartirPdf);
 document.getElementById("btnDescargar").addEventListener("click", descargarPdf);
 document.getElementById("btnImprimir").addEventListener("click", () => window.print());
+document.getElementById("btnBorrador").addEventListener("click", guardarBorrador);
+document.getElementById("btnPendientes").addEventListener("click", togglePendientes);
+document.getElementById("btnNuevo").addEventListener("click", () => {
+  if(confirm("¿Limpiar el formulario para empezar uno nuevo? (No borra los pendientes guardados)"))
+    nuevoFormulario();
+});
+
+// Al cargar: refresca el contador de pendientes.
+renderPendientes();
 </script>
 </body>
 </html>
