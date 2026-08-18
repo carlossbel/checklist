@@ -16,7 +16,7 @@
 <!--  jsPDF: arma el PDF A4 a partir de esa imagen (con paginado). -->
 <!-- ============================================================= -->
 <script src="./html2canvas.min.js"></script>
-<script src="./Jspdf.umd.min.js"></script>
+<script src="./jspdf.umd.min.js"></script>
 
 <style>
   /* ===========================================================
@@ -177,6 +177,8 @@
   .bloques .der{ border-left:var(--grosor) solid var(--borde); }
   .siNo{ display:flex; gap:20px; align-items:center; padding:0 6px; }
   .siNo label{ display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:700; }
+  .tresChecks{ justify-content:space-between; gap:10px; }
+  .tresChecks label{ font-size:9.5pt; }
 
   /* ---------- Firma: dibujar en tablet o cargar imagen ---------- */
   .filaFirma td{ height:96px; }
@@ -439,6 +441,15 @@
           <tr>
             <td class="lbl">Factura de venta o Remisión</td>
             <td class="val"><input type="text" id="factura" /></td>
+          </tr>
+          <tr>
+            <td class="val" colspan="2">
+              <div class="siNo tresChecks">
+                <label>Inspección visual <input type="checkbox" id="inspVisual" /></label>
+                <label>Pedido completo <input type="checkbox" id="pedidoCompleto" /></label>
+                <label>Autorizado entrega <input type="checkbox" id="autorizadoEntrega" /></label>
+              </div>
+            </td>
           </tr>
           <tr>
             <td class="lbl">Observaciones</td>
@@ -997,6 +1008,9 @@ function recolectarFormulario(){
   });
   d.checks["etiqSi"] = document.getElementById("etiqSi").checked;
   d.checks["etiqNo"] = document.getElementById("etiqNo").checked;
+  d.checks["inspVisual"]        = document.getElementById("inspVisual").checked;
+  d.checks["pedidoCompleto"]    = document.getElementById("pedidoCompleto").checked;
+  d.checks["autorizadoEntrega"] = document.getElementById("autorizadoEntrega").checked;
   d.firmas["firmaRecepcion"] = FIRMAS.firmaRecepcion ? FIRMAS.firmaRecepcion.obtener() : "";
   d.firmas["firmaSalida"]    = FIRMAS.firmaSalida    ? FIRMAS.firmaSalida.obtener()    : "";
   return d;
@@ -1037,6 +1051,9 @@ function nuevoFormulario(){
   });
   document.getElementById("etiqSi").checked = false;
   document.getElementById("etiqNo").checked = false;
+  document.getElementById("inspVisual").checked = false;
+  document.getElementById("pedidoCompleto").checked = false;
+  document.getElementById("autorizadoEntrega").checked = false;
   if(FIRMAS.firmaRecepcion) FIRMAS.firmaRecepcion.limpiar();
   if(FIRMAS.firmaSalida)    FIRMAS.firmaSalida.limpiar();
   document.getElementById("fechaEntrada").value = hoyISO();
