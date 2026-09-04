@@ -85,6 +85,26 @@
   .pend-item .pBorrar{ background:#c0504d; }
   .pend-vacio{ color:#667; font-size:13px; font-style:italic; }
 
+  /* Barra de hojas (varias hojas por CROL+Partida) */
+  .barra-hojas{
+    display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+    max-width:770px; margin:0 auto 24px; padding:10px 14px;
+    background:#eef4fb; border:1px solid #b9d0ea; border-radius:8px;
+  }
+  .barra-hojas .hojas-titulo{ font-size:12px; font-weight:700; color:var(--azul); }
+  .hojas-tabs{ display:flex; gap:6px; flex-wrap:wrap; }
+  .hoja-tab{
+    font-size:12px; font-weight:600; padding:6px 12px; cursor:pointer;
+    border:1px solid var(--azul); background:#fff; color:var(--azul); border-radius:5px;
+  }
+  .hoja-tab.activa{ background:var(--azul); color:#fff; }
+  .hoja-btn{
+    font-size:12px; font-weight:600; padding:6px 12px; border:none;
+    border-radius:5px; cursor:pointer; color:#fff; background:#2e8b57;
+  }
+  .hoja-btn.hoja-quitar{ background:#c0504d; }
+  @media print{ .barra-hojas{ display:none !important; } }
+
   /* Zona de mensajes (errores / confirmaciones) */
   .mensaje{
     margin:10px 16px 0; padding:11px 14px; border-radius:6px;
@@ -291,9 +311,9 @@
             <option>CYBERPUERTA</option>
             <option>SERMEXTEC</option>
             <option>MERCADO LIBRE</option>
-            <option>AMAZON</option>  
+            <option>AMAZON</option>
             <option>GRUPO DICE</option>
-            <option>PALACIO DE HIERRO</option>         
+            <option>PALACIO DE HIERRO</option>
           </select>
         </td>
         <td class="descLbl" rowspan="4">
@@ -469,6 +489,14 @@
   </div><!-- /#hoja -->
 </div>
 
+<!-- Barra de hojas: agregar/quitar/cambiar entre hojas de la misma CROL+Partida -->
+<div class="barra-hojas" id="barraHojas">
+  <span class="hojas-titulo">Hojas de esta CROL/Partida:</span>
+  <div class="hojas-tabs" id="hojasTabs"></div>
+  <button id="btnAgregarHoja" class="hoja-btn">➕ Agregar hoja</button>
+  <button id="btnQuitarHoja" class="hoja-btn hoja-quitar" style="display:none">🗑️ Quitar hoja</button>
+</div>
+
 <div id="overlay"><div class="caja"><div class="spinner"></div>Generando PDF…</div></div>
 
 <script>
@@ -579,16 +607,21 @@ function initFirma(wrap){
         blank.width = canvas.width; blank.height = canvas.height;
         return canvas.toDataURL() === blank.toDataURL() ? "" : canvas.toDataURL("image/png");
       },
-      // Dibuja una firma guardada (o limpia si viene vacía).
+      // Dibuja una firma guardada (o limpia si viene vacía). Devuelve
+      // una promesa que se resuelve cuando la firma ya quedó dibujada.
       restaurar(dataURL){
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if(dataURL){
-          const img = new Image();
-          img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); ocultarHint(); };
-          img.src = dataURL;
-        } else {
-          mostrarHint();
-        }
+        return new Promise((resolve) => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if(dataURL){
+            const img = new Image();
+            img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); ocultarHint(); resolve(); };
+            img.onerror = () => resolve();
+            img.src = dataURL;
+          } else {
+            mostrarHint();
+            resolve();
+          }
+        });
       },
       limpiar(){ ctx.clearRect(0, 0, canvas.width, canvas.height); mostrarHint(); }
     };
@@ -624,9 +657,9 @@ function limpiarMensaje(){ zonaMensaje.className = "mensaje"; zonaMensaje.textCo
    3.b) CLIENTES GUARDADOS (autocompletar en esta tablet)
    Los clientes que se escriben se guardan en el navegador
    (localStorage) y reaparecen como sugerencias del campo Cliente.
-   Es por dispositivo/navegador: solo en esta tablet.
    ================================================================ */
 const CLIENTES_KEY = "checklist_clientes";
+const normNombre = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
 
 function leerClientes(){
   try{
@@ -650,9 +683,7 @@ function guardarCliente(nombre){
   nombre = (nombre || "").trim();
   if(!nombre) return;
   let lista = leerClientes();
-  // Evita duplicados sin distinguir mayúsculas/acentos
-  const norm = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
-  if(lista.some(c => norm(c) === norm(nombre))) { pintarClientes(); return; }
+  if(lista.some(c => normNombre(c) === normNombre(nombre))) { pintarClientes(); return; }
   lista.push(nombre);
   lista.sort((a,b) => a.localeCompare(b, "es"));
   try{ localStorage.setItem(CLIENTES_KEY, JSON.stringify(lista)); }catch(e){}
@@ -714,44 +745,61 @@ function claveBorrador(crol, partida){
 
 /* ================================================================
    6) GENERACIÓN DEL PDF (paginado A4)
+   Junta TODAS las hojas de la CROL/Partida en un solo PDF.
+   Si solo hay una hoja, sale igual que siempre.
    ================================================================ */
+
+/* Coloca una imagen (una hoja ya "fotografiada") dentro del PDF,
+   partiéndola en varias páginas si es más alta que una hoja A4. */
+function ponerCanvasEnPdf(pdf, canvas, esPrimeraHoja){
+  const anchoPagina = pdf.internal.pageSize.getWidth();
+  const altoPagina  = pdf.internal.pageSize.getHeight();
+  const margen = 8;
+  const anchoUtil = anchoPagina - margen * 2;
+  const altoImagen = (canvas.height * anchoUtil) / canvas.width;
+
+  if(!esPrimeraHoja) pdf.addPage();
+
+  if(altoImagen <= altoPagina - margen * 2){
+    pdf.addImage(canvas.toDataURL("image/png"), "PNG", margen, margen, anchoUtil, altoImagen);
+  }else{
+    const altoUtilPagina = altoPagina - margen * 2;
+    const pxPorPagina = Math.floor((altoUtilPagina * canvas.width) / anchoUtil);
+    let posicionY = 0, primeraFranja = true;
+    while(posicionY < canvas.height){
+      const altoFranja = Math.min(pxPorPagina, canvas.height - posicionY);
+      const temp = document.createElement("canvas");
+      temp.width = canvas.width; temp.height = altoFranja;
+      const ctx = temp.getContext("2d");
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, temp.width, temp.height);
+      ctx.drawImage(canvas, 0, posicionY, canvas.width, altoFranja, 0, 0, canvas.width, altoFranja);
+      const altoFranjaMM = (altoFranja * anchoUtil) / canvas.width;
+      if(!primeraFranja) pdf.addPage();
+      pdf.addImage(temp.toDataURL("image/png"), "PNG", margen, margen, anchoUtil, altoFranjaMM);
+      primeraFranja = false; posicionY += altoFranja;
+    }
+  }
+}
+
 async function generarPdfBlob(){
   const overlay = document.getElementById("overlay");
   overlay.style.display = "flex";
   try{
+    guardarHojaActual();                       // captura lo que está en pantalla
     const hoja = document.getElementById("hoja");
-    const canvas = await html2canvas(hoja, {
-      scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: hoja.scrollWidth,
-      ignoreElements: (el) => el.classList && el.classList.contains("no-pdf")
-    });
-
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
-    const anchoPagina = pdf.internal.pageSize.getWidth();
-    const altoPagina  = pdf.internal.pageSize.getHeight();
-    const margen = 8;
-    const anchoUtil = anchoPagina - margen * 2;
-    const altoImagen = (canvas.height * anchoUtil) / canvas.width;
 
-    if(altoImagen <= altoPagina - margen * 2){
-      pdf.addImage(canvas.toDataURL("image/png"), "PNG", margen, margen, anchoUtil, altoImagen);
-    }else{
-      const altoUtilPagina = altoPagina - margen * 2;
-      const pxPorPagina = Math.floor((altoUtilPagina * canvas.width) / anchoUtil);
-      let posicionY = 0, primera = true;
-      while(posicionY < canvas.height){
-        const altoFranja = Math.min(pxPorPagina, canvas.height - posicionY);
-        const temp = document.createElement("canvas");
-        temp.width = canvas.width; temp.height = altoFranja;
-        const ctx = temp.getContext("2d");
-        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, temp.width, temp.height);
-        ctx.drawImage(canvas, 0, posicionY, canvas.width, altoFranja, 0, 0, canvas.width, altoFranja);
-        const altoFranjaMM = (altoFranja * anchoUtil) / canvas.width;
-        if(!primera) pdf.addPage();
-        pdf.addImage(temp.toDataURL("image/png"), "PNG", margen, margen, anchoUtil, altoFranjaMM);
-        primera = false; posicionY += altoFranja;
-      }
+    for(let i = 0; i < hojas.length; i++){
+      await mostrarHoja(i);                     // pinta la hoja i (espera firmas)
+      const canvas = await html2canvas(hoja, {
+        scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: hoja.scrollWidth,
+        ignoreElements: (el) => el.classList && el.classList.contains("no-pdf")
+      });
+      ponerCanvasEnPdf(pdf, canvas, i === 0);
     }
+
+    await mostrarHoja(0);                        // regresa a la primera hoja en pantalla
     return pdf.output("blob");
   }finally{
     overlay.style.display = "none";
@@ -1022,9 +1070,10 @@ function recolectarFormulario(){
   return d;
 }
 
-/* Vuelca un objeto guardado de vuelta al formulario */
-function aplicarFormulario(d){
-  if(!d) return;
+/* Vuelca un objeto guardado de vuelta al formulario (espera a que
+   las firmas terminen de dibujarse antes de continuar). */
+async function aplicarFormulario(d){
+  if(!d) d = {};
   CAMPOS_SIMPLES.forEach(id => {
     const el = document.getElementById(id);
     if(el && d.campos && id in d.campos) el.value = d.campos[id];
@@ -1041,10 +1090,11 @@ function aplicarFormulario(d){
       if(el) el.value = d.obs[id];
     });
   }
-  if(d.firmas){
-    if(FIRMAS.firmaRecepcion) FIRMAS.firmaRecepcion.restaurar(d.firmas.firmaRecepcion || "");
-    if(FIRMAS.firmaSalida)    FIRMAS.firmaSalida.restaurar(d.firmas.firmaSalida || "");
-  }
+  const firmas = d.firmas || {};
+  const pend = [];
+  if(FIRMAS.firmaRecepcion) pend.push(FIRMAS.firmaRecepcion.restaurar(firmas.firmaRecepcion || ""));
+  if(FIRMAS.firmaSalida)    pend.push(FIRMAS.firmaSalida.restaurar(firmas.firmaSalida || ""));
+  await Promise.all(pend);
 }
 
 /* Limpia el formulario para empezar uno nuevo */
@@ -1066,7 +1116,82 @@ function nuevoFormulario(){
   limpiarMensaje();
 }
 
-/* Lee/guarda el mapa de borradores { crol: {datos, guardadoEn} } */
+/* ================================================================
+   12.b) VARIAS HOJAS POR CROL+PARTIDA
+   Una CROL/Partida puede llegar en varias entregas; cada entrega es
+   una "hoja" (un checklist completo). Se llenan de a una en el
+   formulario; el arreglo "hojas" guarda las demás. El PDF final
+   junta todas las hojas en un solo archivo.
+   ================================================================ */
+let hojas = [{}];      // cada elemento = un checklist (recolectarFormulario)
+let hojaActual = 0;
+
+/* Toma lo que está en pantalla y lo guarda en la hoja actual */
+function guardarHojaActual(){
+  hojas[hojaActual] = recolectarFormulario();
+}
+
+/* Crea una hoja nueva copiando solo el encabezado (misma CROL/Partida) */
+function nuevaHojaDesde(base){
+  const d = { campos:{}, checks:{}, obs:{}, firmas:{ firmaRecepcion:"", firmaSalida:"" } };
+  const hd = (base && base.campos) ? base.campos : {};
+  ["proveedor","crol","cliente","partida","descripcion"].forEach(k => d.campos[k] = hd[k] || "");
+  d.campos["fechaEntrada"] = hoyISO();
+  return d;
+}
+
+/* Muestra en pantalla la hoja i (limpia y vuelca sus datos) */
+async function mostrarHoja(i){
+  nuevoFormulario();
+  await aplicarFormulario(hojas[i] || {});
+  hojaActual = i;
+  renderTabsHojas();
+}
+
+/* Dibuja las pestañas Hoja 1, Hoja 2, … */
+function renderTabsHojas(){
+  const cont = document.getElementById("hojasTabs");
+  if(!cont) return;
+  cont.innerHTML = "";
+  hojas.forEach((_, i) => {
+    const t = document.createElement("button");
+    t.className = "hoja-tab" + (i === hojaActual ? " activa" : "");
+    t.textContent = "Hoja " + (i + 1);
+    t.addEventListener("click", async () => {
+      guardarHojaActual();
+      await mostrarHoja(i);
+    });
+    cont.appendChild(t);
+  });
+  document.getElementById("btnQuitarHoja").style.display = (hojas.length > 1) ? "" : "none";
+}
+
+/* Botón: agregar otra hoja a la misma CROL/Partida */
+async function agregarHoja(){
+  guardarHojaActual();
+  hojas.push(nuevaHojaDesde(hojas[hojaActual]));
+  await mostrarHoja(hojas.length - 1);
+  mostrarMensaje("info", "➕ Hoja " + hojas.length + " agregada. Llénala y, al generar el PDF, saldrán todas juntas.");
+}
+
+/* Botón: quitar la hoja actual */
+async function quitarHoja(){
+  if(hojas.length <= 1){ mostrarMensaje("info", "Solo hay una hoja."); return; }
+  if(!confirm("¿Quitar la Hoja " + (hojaActual + 1) + "? Se perderá lo capturado en ella.")) return;
+  hojas.splice(hojaActual, 1);
+  await mostrarHoja(Math.max(0, hojaActual - 1));
+  mostrarMensaje("info", "Hoja quitada. Quedan " + hojas.length + ".");
+}
+
+/* Reinicia a una sola hoja en blanco (para «Nuevo») */
+async function reiniciarHojas(){
+  hojas = [{}];
+  hojaActual = 0;
+  nuevoFormulario();
+  renderTabsHojas();
+}
+
+/* Lee/guarda el mapa de borradores { clave: {datos, crol, partida, ...} } */
 function leerBorradores(){
   try{ const t = localStorage.getItem(BORRADORES_KEY); return t ? JSON.parse(t) : {}; }
   catch(e){ return {}; }
@@ -1077,8 +1202,8 @@ function escribirBorradores(obj){
   }
 }
 
-/* Guardar borrador: la llave es CROL + Partida (cada partida es su
-   propio checklist, para que no se encimen entre sí) */
+/* Guardar borrador: la llave es CROL + Partida. Guarda TODAS las
+   hojas de esa CROL/Partida. */
 function guardarBorrador(){
   limpiarMensaje();
   const crol = document.getElementById("crol").value.trim();
@@ -1087,11 +1212,12 @@ function guardarBorrador(){
     mostrarMensaje("err", "Para guardar un borrador, captura la <b>CROL</b> y la <b>Partida</b>.");
     return;
   }
+  guardarHojaActual();                         // captura la hoja en pantalla
   const clave = claveBorrador(crol, partida);
-  const datos = recolectarFormulario();
   const todos = leerBorradores();
   todos[clave] = {
-    datos,
+    hojas: hojas,
+    nHojas: hojas.length,
     crol: crol,
     partida: partida,
     cliente: document.getElementById("cliente").value.trim(),
@@ -1099,7 +1225,8 @@ function guardarBorrador(){
   };
   escribirBorradores(todos);
   renderPendientes();
-  mostrarMensaje("ok", "📝 Borrador guardado: CROL <b>" + crol + "</b> · Partida <b>" + partida + "</b>. Aparece en «Pendientes».");
+  mostrarMensaje("ok", "📝 Borrador guardado: CROL <b>" + crol + "</b> · Partida <b>" + partida +
+    "</b> · " + hojas.length + " hoja(s). Aparece en «Pendientes».");
 }
 
 /* Borra un borrador por su llave (uso interno, sin contraseña) */
@@ -1108,18 +1235,13 @@ function borrarBorradorSilencioso(clave){
   if(todos[clave]){ delete todos[clave]; escribirBorradores(todos); renderPendientes(); }
 }
 
-/* Contador y lista visible */
-function actualizarContadorPendientes(){
-  const n = Object.keys(leerBorradores()).length;
-  document.getElementById("btnPendientes").textContent = "📋 Pendientes (" + n + ")";
-}
-
 function renderPendientes(){
-  actualizarContadorPendientes();
   const cont = document.getElementById("listaPendientes");
   const todos = leerBorradores();
   const claves = Object.keys(todos).sort((a,b) =>
     (todos[b].guardadoEn || "").localeCompare(todos[a].guardadoEn || ""));
+  document.getElementById("btnPendientes").textContent = "📋 Pendientes (" + claves.length + ")";
+  if(!cont) return;
   cont.innerHTML = "";
   if(claves.length === 0){
     cont.innerHTML = '<div class="pend-vacio">No hay checklists pendientes.</div>';
@@ -1134,19 +1256,25 @@ function renderPendientes(){
                       String(f.getMinutes()).padStart(2,"0")) : "";
     const crol = b.crol || clave;
     const partida = b.partida || "";
+    const nHojas = Array.isArray(b.hojas) ? b.hojas.length : 1;
     const item = document.createElement("div");
     item.className = "pend-item";
     item.innerHTML =
       '<div class="pend-info">CROL <b>' + crol + '</b>' +
       (partida ? ' · Partida <b>' + partida + '</b>' : '') +
       (b.cliente ? ' · ' + b.cliente : '') +
+      (nHojas > 1 ? ' · <b>' + nHojas + ' hojas</b>' : '') +
       '<div class="pend-fecha">Guardado: ' + fTxt + '</div></div>';
     const abrir = document.createElement("button");
     abrir.className = "pAbrir"; abrir.textContent = "Abrir";
-    abrir.addEventListener("click", () => {
-      aplicarFormulario(b.datos);
+    abrir.addEventListener("click", async () => {
+      // Compatible con borradores viejos (una sola hoja en b.datos)
+      hojas = Array.isArray(b.hojas) ? b.hojas : [ b.datos || {} ];
+      hojaActual = 0;
+      await mostrarHoja(0);
       document.getElementById("panelPendientes").style.display = "none";
-      mostrarMensaje("info", "Borrador cargado: CROL <b>" + crol + "</b> · Partida <b>" + partida + "</b>. Completa la salida y genera el PDF.");
+      mostrarMensaje("info", "Borrador cargado: CROL <b>" + crol + "</b> · Partida <b>" + partida +
+        "</b> · " + hojas.length + " hoja(s). Completa la salida y genera el PDF.");
       window.scrollTo({ top:0, behavior:"smooth" });
     });
     const borrar = document.createElement("button");
@@ -1181,13 +1309,16 @@ document.getElementById("btnDescargar").addEventListener("click", descargarPdf);
 document.getElementById("btnImprimir").addEventListener("click", () => window.print());
 document.getElementById("btnBorrador").addEventListener("click", guardarBorrador);
 document.getElementById("btnPendientes").addEventListener("click", togglePendientes);
+document.getElementById("btnAgregarHoja").addEventListener("click", agregarHoja);
+document.getElementById("btnQuitarHoja").addEventListener("click", quitarHoja);
 document.getElementById("btnNuevo").addEventListener("click", () => {
   if(confirm("¿Limpiar el formulario para empezar uno nuevo? (No borra los pendientes guardados)"))
-    nuevoFormulario();
+    reiniciarHojas();
 });
 
-// Al cargar: refresca el contador de pendientes.
+// Al cargar: refresca pendientes y dibuja la pestaña de la Hoja 1.
 renderPendientes();
+renderTabsHojas();
 </script>
 </body>
 </html>
