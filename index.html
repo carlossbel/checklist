@@ -155,6 +155,14 @@
     font-size:10pt; font-family:inherit; background:transparent;
     outline:none; padding:4px 5px; cursor:pointer;
   }
+  /* Campo "Otros…" para escribir un proveedor que no está en la lista */
+  #provOtroWrap{ display:flex; align-items:center; width:100%; }
+  #provOtroWrap input{ flex:1; }
+  #provVolver{
+    border:none; background:transparent; color:var(--azul);
+    cursor:pointer; font-size:14px; padding:0 8px; line-height:1;
+  }
+  #provVolver:hover{ color:var(--azul-oscuro); }
 
   /* Barras/celdas azules (título + secciones) */
   .azul{ background:var(--azul); color:#fff; font-weight:700; text-align:center; letter-spacing:.3px; }
@@ -324,8 +332,13 @@
             <option>PCEL</option>    
             <option>INTERCOMPRAS COMERCIO ELECTRONICO</option> 
             <option>TELECOMM BROKERS & ASSOCIATES</option> 
-            <option>FERNANDO HERRERA</option>                                      
+            <option>FERNANDO HERRERA</option>
+            <option value="__otro__">Otros… (escribir)</option>
           </select>
+          <span id="provOtroWrap" style="display:none;">
+            <input type="text" id="proveedorOtro" placeholder="Escribe el proveedor" autocomplete="off" />
+            <button type="button" id="provVolver" class="no-pdf" title="Volver a la lista">↩</button>
+          </span>
         </td>
         <td class="descLbl" rowspan="4">
           <span class="rotulo">BREVE DESCRIPCIÓN DE LA MERCANCÍA:</span>
@@ -556,6 +569,32 @@ exclusivo("etiqSi", "etiqNo");
 document.getElementById("crol").addEventListener("input", (e) => {
   e.target.value = e.target.value.replace(/[^0-9]/g, "");
 });
+
+/* ================================================================
+   1.c.2) PROVEEDOR "OTROS…": escribir un proveedor fuera de la lista
+   Al elegir "Otros…" se oculta la lista y aparece un campo de texto.
+   El botón ↩ (no sale en el PDF) regresa a la lista desplegable.
+   ================================================================ */
+(function proveedorOtros(){
+  const sel  = document.getElementById("proveedor");
+  const wrap = document.getElementById("provOtroWrap");
+  const inp  = document.getElementById("proveedorOtro");
+  const volver = document.getElementById("provVolver");
+
+  sel.addEventListener("change", () => {
+    if(sel.value === "__otro__"){
+      sel.style.display = "none";   // oculta la lista
+      wrap.style.display = "flex";  // muestra el campo de texto
+      inp.focus();
+    }
+  });
+  volver.addEventListener("click", () => {
+    inp.value = "";
+    wrap.style.display = "none";
+    sel.style.display = "";
+    sel.value = "";               // regresa a la lista (vacía)
+  });
+})();
 
 /* ================================================================
    1.d) FIRMAS: dibujar (dedo / lápiz / mouse) o cargar imagen
