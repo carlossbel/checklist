@@ -588,6 +588,12 @@ document.getElementById("crol").addEventListener("input", (e) => {
       inp.focus();
     }
   });
+  // Convierte a MAYÚSCULAS automáticamente mientras se escribe
+  inp.addEventListener("input", () => {
+    const pos = inp.selectionStart;              // conserva la posición del cursor
+    inp.value = inp.value.toLocaleUpperCase("es");
+    inp.setSelectionRange(pos, pos);
+  });
   volver.addEventListener("click", () => {
     inp.value = "";
     wrap.style.display = "none";
