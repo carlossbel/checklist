@@ -815,8 +815,12 @@ function ponerCanvasEnPdf(pdf, canvas, esPrimeraHoja){
 
   if(!esPrimeraHoja) pdf.addPage();
 
+  // Usamos JPEG (no PNG): pesa mucho menos y es mucho más rápido de
+  // codificar, clave cuando hay varias hojas. 0.92 mantiene el texto nítido.
+  const CALIDAD = 0.92;
+
   if(altoImagen <= altoPagina - margen * 2){
-    pdf.addImage(canvas.toDataURL("image/png"), "PNG", margen, margen, anchoUtil, altoImagen);
+    pdf.addImage(canvas.toDataURL("image/jpeg", CALIDAD), "JPEG", margen, margen, anchoUtil, altoImagen);
   }else{
     const altoUtilPagina = altoPagina - margen * 2;
     const pxPorPagina = Math.floor((altoUtilPagina * canvas.width) / anchoUtil);
@@ -830,7 +834,7 @@ function ponerCanvasEnPdf(pdf, canvas, esPrimeraHoja){
       ctx.drawImage(canvas, 0, posicionY, canvas.width, altoFranja, 0, 0, canvas.width, altoFranja);
       const altoFranjaMM = (altoFranja * anchoUtil) / canvas.width;
       if(!primeraFranja) pdf.addPage();
-      pdf.addImage(temp.toDataURL("image/png"), "PNG", margen, margen, anchoUtil, altoFranjaMM);
+      pdf.addImage(temp.toDataURL("image/jpeg", CALIDAD), "JPEG", margen, margen, anchoUtil, altoFranjaMM);
       primeraFranja = false; posicionY += altoFranja;
     }
   }
@@ -843,15 +847,23 @@ async function generarPdfBlob(){
     guardarHojaActual();                       // captura lo que está en pantalla
     const hoja = document.getElementById("hoja");
     const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
+    // compress:true reduce bastante el tamaño final del PDF
+    const pdf = new jsPDF({ unit:"mm", format:"a4", orientation:"portrait", compress:true });
+
+    // Escala 1.5 en vez de 2: ~44% menos píxeles -> más rápido y menos
+    // memoria, evitando que falle cuando hay varias hojas. Sigue nítido.
+    const ESCALA = 1.5;
 
     for(let i = 0; i < hojas.length; i++){
       await mostrarHoja(i);                     // pinta la hoja i (espera firmas)
       const canvas = await html2canvas(hoja, {
-        scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: hoja.scrollWidth,
+        scale: ESCALA, useCORS: true, backgroundColor: "#ffffff",
+        windowWidth: hoja.scrollWidth, logging: false,
         ignoreElements: (el) => el.classList && el.classList.contains("no-pdf")
       });
       ponerCanvasEnPdf(pdf, canvas, i === 0);
+      // Cede el hilo entre hojas para que el navegador no se congele
+      await new Promise(r => setTimeout(r, 0));
     }
 
     await mostrarHoja(0);                        // regresa a la primera hoja en pantalla
@@ -1056,7 +1068,7 @@ async function compartirPdf(){
     else if(e && e.name === "NotAllowedError")
       mostrarMensaje("err",
         "El navegador bloqueó el compartir (el PDF tardó mucho en generarse). " +
-        "Vuelve a intentarlo. Si pasa seguido, baja «scale: 2» a «scale: 1.5» en html2canvas.");
+        "Vuelve a intentarlo; si tienes muchas hojas, intenta guardarlas en menos partes.");
     else
       mostrarMensaje("err", "❌ No se pudo compartir: " + (e.message || e));
   }
